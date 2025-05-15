@@ -91,3 +91,4 @@ You'll have a wheel file in the ``build`` directory now. You can install the
 wheel somewhere else by pointing pip right to the file::
 
     pip install PATH_TO_WHEEL_FILE
+
