@@ -1,4 +1,6 @@
 import asyncio
+import re
+import time
 
 import pytest
 from rethinkdb import r
@@ -56,66 +58,99 @@ async def test_double_close4(db_conn):
 @pytest.mark.timeout(10)
 async def test_multithreading(db_conn, capsys):
     import threading
+    import queue
 
     cns = []
     cns_l = threading.Lock()
     ev = threading.Event()
-    cn = await db_conn
+    completion_queue = queue.Queue()
 
-    def thrd(i):
+    def third(i):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
         async def do_stuff():
-            # connect, run a query, disconnect, add (dead) connection object to list
-            cn = await db_conn
-            dbs = await r.db_list().run(cn)
-            assert dbs is not None
-            await db_conn.close(False)
-            assert not cn.is_open()
-            with cns_l:
-                cns.append(cn)
-            # wait until main thread lets us continue
-            await loop.run_in_executor(None, ev.wait)
-            # make new connection and do some more
-            cn = await db_conn
-            dbs = await r.db_list().run(cn)
-            await cn.close(False)
-            assert not cn.is_open()
+            try:
+                # First connection
+                cn = await db_conn
+                try:
+                    dbs = await r.db_list().run(cn)
+                    assert dbs is not None
+                finally:
+                    await cn.close(False)
+                # noinspection PyUnreachableCode
+                assert not cn.is_open()
 
-        # just run do_stuff, then terminate
-        loop.run_until_complete(do_stuff())
-        v0 = asyncio._all_tasks_compat()
-        v1 = asyncio.gather(*v0)
-        loop.run_until_complete(v1)
-        assert len(asyncio._all_tasks_compat()) == 0
-        loop.close()
+                with cns_l:
+                    cns.append(cn)
+
+                # Wait for the main thread signal
+                await loop.run_in_executor(None, ev.wait)
+
+                # Second connection
+                cn = await db_conn
+                try:
+                    await r.db_list().run(cn)
+                finally:
+                    await cn.close(False)
+                # noinspection PyUnreachableCode
+                assert not cn.is_open()
+
+            except Exception as e:
+                completion_queue.put((i, e))
+                return
+
+            completion_queue.put((i, None))
+
+        try:
+            loop.run_until_complete(do_stuff())
+
+            # Clean up remaining tasks
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        finally:
+            loop.close()
+        # noinspection PyUnreachableCode
         print("##TEST thread ran all the way through##")
 
     num_threads = 10
-    threads = [threading.Thread(target=thrd, args=(i,))
-               for i in range(num_threads)]
+    threads = [threading.Thread(target=third, args=(i,)) for i in range(num_threads)]
     [t.start() for t in threads]
-    while True:
+
+    # Wait for all connections with timeout
+    timeout = 10
+    start_time = time.time()
+    while time.time() - start_time < timeout:
         await asyncio.sleep(0.1)
         with cns_l:
             if len(cns) == num_threads:
                 break
+    else:
+        raise TimeoutError("Threads did not complete in time")
 
-    # make sure all cns are unique
+    # Verify unique connections
     cns_set = set(cns)
     assert len(cns_set) == num_threads
 
-    # let threads terminate
+    # Let threads continue and wait for completion
     ev.set()
     [t.join() for t in threads]
 
-    # make sure all threads ran all the way through
+    # Check for thread errors
+    errors = []
+    while not completion_queue.empty():
+        thread_id, error = completion_queue.get()
+        if error:
+            errors.append(f"Thread {thread_id}: {error}")
+
+    if errors:
+        raise Exception("Thread errors occurred:\n" + "\n".join(errors))
+
+    # Verify all threads completed
     out, err = capsys.readouterr()
-    import re
     matches = re.findall("##TEST thread ran all the way through##", out)
     assert len(matches) == num_threads
-
 
 @pytest.fixture
 def doc_classes(db_conn):

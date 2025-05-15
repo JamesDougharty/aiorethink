@@ -1,8 +1,10 @@
 import collections
 import inspect
 import threading
+from typing import Callable, Any
 
 from rethinkdb import r
+from rethinkdb.asyncio_net.net_asyncio import AsyncioCursor
 
 r.set_loop_type("asyncio")
 
@@ -139,10 +141,9 @@ async def aiter_changes(query, value_type, conn=None):
 ###############################################################################
 
 class CursorAsyncIterator(collections.abc.AsyncIterator):
-    """Async iterator that iterates over a RethinkDB cursor until it's empty.
-    """
-
     def __init__(self, cursor):
+        if not hasattr(cursor, 'next'):
+            raise ValueError("Cursor must have 'next' method")
         self.cursor = cursor
 
     def __aiter__(self):
@@ -153,18 +154,22 @@ class CursorAsyncIterator(collections.abc.AsyncIterator):
             return await self.cursor.next()
         except r.ReqlCursorEmpty:
             raise StopAsyncIteration
+        except Exception as e:
+            raise ValueError(f"Cursor iteration failed: {e}") from e
 
-    async def as_list(self):
-        """Turns the asynchronous iterator into a list by doing the iteration
-        and collecting the resulting items into a list.
-        """
-        _list = []
-        async for item in self:
-            _list.append(item)
-        return _list
+    async def aclose(self):
+        """Properly close the cursor when done"""
+        if hasattr(self.cursor, 'close'):
+            await self.cursor.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.aclose()
 
 
-class CursorAsyncMap(CursorAsyncIterator):
+class CursorAsyncMap:
     """Async iterator that iterates through a RethinkDB cursor, mapping each
     object coming out of the cursor to a supplied mapper function.
 
@@ -174,17 +179,26 @@ class CursorAsyncMap(CursorAsyncIterator):
     The ``as_list()`` coroutine creates a list out of the iterated items.
     """
 
-    def __init__(self, cursor, mapper):
-        """cursor is a RethinkDB cursor. mapper is a function accepting one
-        parameter: whatever comes out of cursor.next().
-        """
-        super().__init__(cursor)
+    def __init__(self, cursor: 'AsyncioCursor', mapper: Callable[[Any], Any]) -> None:
+
+        self.cursor = cursor
         self.mapper = mapper
 
+    def __aiter__(self):
+        return self
+
     async def __anext__(self):
-        item = await super().__anext__()
-        mapped = self.mapper(item)
-        return mapped
+        try:
+            item = await self.cursor.__anext__()
+            return self.mapper(item)
+        except StopAsyncIteration:
+            raise
+
+    async def as_list(self):
+        result = []
+        async for item in self:
+            result.append(item)
+        return result
 
 
 class ChangesAsyncMap(CursorAsyncIterator):
@@ -210,18 +224,22 @@ class ChangesAsyncMap(CursorAsyncIterator):
         self.mapper = mapper
 
     async def __anext__(self):
-        # process and yield next message from changefeed that carries a
-        # "new_val"
-        while True:
-            message = await super().__anext__()
-
-            if "new_val" not in message:
-                continue
-
-            mapped = self.mapper(message["new_val"])
-            return mapped, message
+        try:
+            while True:
+                message = await super().__anext__()
+                if not isinstance(message, dict):
+                    continue
+                if "new_val" not in message:
+                    continue
+                try:
+                    mapped = self.mapper(message["new_val"])
+                    return mapped, message
+                except Exception as e:
+                    raise ValueError(f"Failed to map value: {e}") from e
+        except StopAsyncIteration:
+            raise
 
     async def as_list(self):
-        """This is verboten on change feeds as they have infinite length.
+        """This is verboten on changefeeds as they have infinite length.
         """
         raise NotImplementedError("as_list makes no sense on changefeeds")

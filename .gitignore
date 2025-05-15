@@ -20,3 +20,6 @@ dist
 *.vim
 .rsync-filter
 build_and_publish.sh
+
+# Poetry
+.venv

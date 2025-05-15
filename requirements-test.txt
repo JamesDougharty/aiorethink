@@ -1,9 +1,0 @@
-coverage>=4.1b2 # 4.0 crashes when parsing 'async for'
-pytest
-pytest-cov
-pytest-asyncio
-pytest-timeout
-
-tox
-
-#coveralls
