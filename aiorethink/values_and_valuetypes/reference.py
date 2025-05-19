@@ -38,7 +38,7 @@ class LazyDocRef(LazyValue):
         return await self._target.load(dbval, conn)
 
     def _convert_to_db(self, pyval):
-        return pyval.__class__.pkey._do_convert_to_doc(pyval)  # TODO method name now different?
+        return pyval.__class__.pkey.do_convert_to_doc(pyval)  # TODO method name now different?
 
 
 class LazyDocRefValueType(LazyValueType):
