@@ -14,17 +14,17 @@ from ..field import Field, FieldAlias
 __all__ = ["FieldContainer", "FieldContainerValueType"]
 
 
-class _MetaFieldContainer(abc.ABCMeta):
+class MetaFieldContainer(abc.ABCMeta):
 
     def __init__(cls, name, bases, classdict):
-        cls._map_declared_fields()
-        cls._check_field_spec()
+        cls.map_declared_fields()
+        cls.check_field_spec()
 
         super().__init__(name, bases, classdict)
 
 
 class FieldContainer(collections.abc.MutableMapping,
-                     metaclass=_MetaFieldContainer):
+                     metaclass=MetaFieldContainer):
     """A FieldContainer stores named fields. It is the base for
     :class:`aiorethink.Document`, but can also be used directly.
 
@@ -49,7 +49,7 @@ class FieldContainer(collections.abc.MutableMapping,
         """
         super().__init__()
 
-        self._declared_fields_values = {}  # { attr name : object }
+        self.declared_fields_values = {}  # { attr name : object }
         self._updated_fields = {}
         self._undeclared_fields = {}
 
@@ -62,7 +62,7 @@ class FieldContainer(collections.abc.MutableMapping,
     ###########################################################################
 
     @classmethod
-    def _map_declared_fields(cls):
+    def map_declared_fields(cls):
         """Construct _declared_fields_objects and _dbname_to_field_name from
         Fields.
         """
@@ -111,7 +111,7 @@ class FieldContainer(collections.abc.MutableMapping,
                     cls._dbname_to_field_name[attr.dbname] = attr.name
 
     @classmethod
-    def _check_field_spec(cls):
+    def check_field_spec(cls):
         """Subclasses can override this to check field specs for legality. The
         implementation in FieldContainer does nothing.
         """
@@ -126,7 +126,7 @@ class FieldContainer(collections.abc.MutableMapping,
         return s.format(o=self, str_rep=str(self))
 
     def __str__(self):
-        return str(collections.ChainMap(self._declared_fields_values,
+        return str(collections.ChainMap(self.declared_fields_values,
                                         self._undeclared_fields))
 
     def mark_field_updated(self, name):
@@ -215,7 +215,7 @@ class FieldContainer(collections.abc.MutableMapping,
             if fld_name is not None:
                 # make declared field
                 fld_obj = getattr(cls, fld_name)
-                fld_obj._store_from_doc(obj, dbval, mark_updated=False)
+                fld_obj.store_from_doc(obj, dbval, mark_updated=False)
             else:
                 # make undeclared field
                 obj._undeclared_fields[dbkey] = dbval
@@ -251,7 +251,7 @@ class FieldContainer(collections.abc.MutableMapping,
         not exist, default is returned.
         """
         if self.has_field_attr(fld_name):
-            return getattr(self.__class__, fld_name)._do_convert_to_doc(self)
+            return getattr(self.__class__, fld_name).do_convert_to_doc(self)
         elif fld_name in self._undeclared_fields:
             return self._undeclared_fields[fld_name]
         else:
@@ -287,7 +287,7 @@ class FieldContainer(collections.abc.MutableMapping,
         """
         if self.has_field_attr(fld_name):
             getattr(self.__class__, fld_name). \
-                _store_from_doc(self, dbvalue, mark_updated)
+                store_from_doc(self, dbvalue, mark_updated)
         else:
             self[fld_name] = dbvalue
 

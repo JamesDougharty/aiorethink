@@ -7,7 +7,7 @@ __all__ = ["Field", "FieldAlias"]
 class Field:
     """Field instances are attached to FieldContainer classes as class attributes.
 
-    Field is a data descriptor, i.e. it implements __get__ and __set__ for
+    Field is a data descriptor, i.e., it implements __get__ and __set__ for
     attribute access on FieldContainer instances. This way, Field instances
     store values in a FieldContainer instance.
 
@@ -24,7 +24,7 @@ class Field:
             python.
         indexed: if True, a secondary index will be created for this property
         required: set to True if a non-None value is required.
-        primary_key: use this property as primary key. If True, indexed must be
+        primary_key: use this property as a primary key. If True, indexed must be
             False and required must be True.
         default: default value (which defaults to None).
         """
@@ -101,17 +101,17 @@ class Field:
     def __get__(self, obj, cls):
         if obj is None:
             return self  # __get__ was called on class, not instance
-        return obj._declared_fields_values.get(self._name, self._default)
+        return obj.declared_fields_values.get(self._name, self._default)
 
     def __set__(self, obj, val, mark_updated=True):
         self.validate(val)
-        obj._declared_fields_values[self._name] = val
+        obj.declared_fields_values[self._name] = val
         if mark_updated:
             obj.mark_field_updated(self._name)
 
     def __delete__(self, obj):
-        if self._name in obj._declared_fields_values:
-            del obj._declared_fields_values[self._name]
+        if self._name in obj.declared_fields_values:
+            del obj.declared_fields_values[self._name]
             obj.mark_field_updated(self._name)
 
     ###########################################################################
@@ -121,12 +121,12 @@ class Field:
     # TODO at least store from doc should probably be public, in order to
     # use it in changefeeds...
 
-    def _do_convert_to_doc(self, obj):
+    def do_convert_to_doc(self, obj):
         val = self.__get__(obj, None)
         self.validate(val)  # TODO do we validate too often?
         return self.val_type.pyval_to_dbval(val)
 
-    def _store_from_doc(self, obj, dbval, mark_updated=False):
+    def store_from_doc(self, obj, dbval, mark_updated=False):
         val = self.val_type.dbval_to_pyval(dbval)
         self.__set__(obj, val, mark_updated=mark_updated)
 

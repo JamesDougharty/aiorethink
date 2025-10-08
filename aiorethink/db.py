@@ -4,6 +4,7 @@ import threading
 from typing import Callable, Any
 
 from rethinkdb import r
+# noinspection PyProtectedMember
 from rethinkdb.asyncio_net.net_asyncio import AsyncioCursor
 
 r.set_loop_type("asyncio")
@@ -11,7 +12,9 @@ r.set_loop_type("asyncio")
 from .errors import IllegalAccessError, AlreadyExistsError
 from .registry import registry
 
-__all__ = ["db_conn", "init_app_db", "configure_db_connection", "aiter_changes"]
+__all__ = ["db_conn", "init_app_db", "configure_db_connection",
+           "aiter_changes", "ChangesAsyncMap", "CursorAsyncIterator",
+           "CursorAsyncMap", "_run_query"]
 
 
 ###############################################################################
@@ -53,13 +56,17 @@ class _OneConnPerThreadPool:
         self._tl.conn = await r.connect(**self._connect_kwargs)
         return self._tl.conn
 
-    async def close(self, noreply_wait=True):
+    async def close(self, no_reply_wait=True):
         """Closes the thread's DB connection.
         """
         if hasattr(self._tl, "conn"):
             if self._tl.conn.is_open():
-                await self._tl.conn.close(noreply_wait)
+                await self._tl.conn.close(no_reply_wait)
             del self._tl.conn
+
+    @property
+    def connect_kwargs(self):
+        return self._connect_kwargs
 
 
 db_conn = _OneConnPerThreadPool()
@@ -80,7 +87,7 @@ async def init_app_db(reconfigure_db=False, conn=None):
     cn = conn or await db_conn
 
     # create DB if it doesn't exist
-    our_db = db_conn._connect_kwargs["db"]
+    our_db = db_conn.connect_kwargs["db"]
     dbs = await r.db_list().run(cn)
     if our_db not in dbs:
         await r.db_create(our_db).run(cn)
@@ -88,7 +95,7 @@ async def init_app_db(reconfigure_db=False, conn=None):
     # (re)configure DB tables
     for doc_class in registry.values():
         if not await doc_class.table_exists(cn):
-            await doc_class._create_table(cn)
+            await doc_class.create_table(cn)
         elif reconfigure_db:
             await doc_class._reconfigure_table(cn)
 
@@ -141,6 +148,9 @@ async def aiter_changes(query, value_type, conn=None):
 ###############################################################################
 
 class CursorAsyncIterator(collections.abc.AsyncIterator):
+    """Async iterator that iterates over a RethinkDB cursor until it's empty.
+    """
+
     def __init__(self, cursor):
         if not hasattr(cursor, 'next'):
             raise ValueError("Cursor must have 'next' method")
@@ -179,7 +189,7 @@ class CursorAsyncMap:
     The ``as_list()`` coroutine creates a list out of the iterated items.
     """
 
-    def __init__(self, cursor: 'AsyncioCursor', mapper: Callable[[Any], Any]) -> None:
+    def __init__(self, cursor: AsyncioCursor, mapper: Callable[[Any], Any]) -> None:
 
         self.cursor = cursor
         self.mapper = mapper
@@ -188,11 +198,8 @@ class CursorAsyncMap:
         return self
 
     async def __anext__(self):
-        try:
-            item = await self.cursor.__anext__()
-            return self.mapper(item)
-        except StopAsyncIteration:
-            raise
+        item = await self.cursor.__anext__()
+        return self.mapper(item)
 
     async def as_list(self):
         result = []
@@ -224,20 +231,37 @@ class ChangesAsyncMap(CursorAsyncIterator):
         self.mapper = mapper
 
     async def __anext__(self):
-        try:
-            while True:
-                message = await super().__anext__()
-                if not isinstance(message, dict):
-                    continue
-                if "new_val" not in message:
-                    continue
+        """
+        Provides functionality for asynchronously iterating over messages, applying a
+        mapping function to transform the "new_val" field, and returning
+        the transformed result alongside the original message. This is useful for
+        handling asynchronous data streams where certain transformations are needed on
+        specific fields of the incoming messages.
+
+        Raises a ValueError if the mapping function fails to process the "new_val" field
+        correctly. Relies on an asynchronous iterator to retrieve the next message.
+
+        Returns the mapped value along with the original message if successful.
+
+        Args:
+            --
+        Raises:
+            ValueError: Indicates that the mapping function failed to process the
+                        "new_val" field.
+            StopAsyncIteration: Raised when the underlying asynchronous iterator has no
+                                more items to yield.
+
+        Returns:
+            tuple: A tuple containing the mapped value and the original message.
+        """
+        while True:
+            message = await super().__anext__()
+            if isinstance(message, dict) and "new_val" in message:
                 try:
                     mapped = self.mapper(message["new_val"])
                     return mapped, message
                 except Exception as e:
                     raise ValueError(f"Failed to map value: {e}") from e
-        except StopAsyncIteration:
-            raise
 
     async def as_list(self):
         """This is verboten on changefeeds as they have infinite length.

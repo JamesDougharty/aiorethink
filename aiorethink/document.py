@@ -10,15 +10,15 @@ from .db import db_conn, ChangesAsyncMap, \
 from .errors import IllegalSpecError, AlreadyExistsError, NotFoundError
 from .field import Field, FieldAlias
 from .registry import registry
-from .values_and_valuetypes.field_container import FieldContainer, _MetaFieldContainer
+from .values_and_valuetypes.field_container import FieldContainer, MetaFieldContainer
 
 __all__ = ["Document"]
 
 
-class _MetaDocument(_MetaFieldContainer):
+class _MetaDocument(MetaFieldContainer):
 
     def __init__(cls, name, bases, classdict):
-        cls._tablename = cls._get_tablename()
+        cls._tablename = cls.get_tablename()
 
         # make sure that the following runs only for subclasses of Document.
         # There's no really nice way to do this AFAIK, because 'Document' is
@@ -55,7 +55,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
     ###########################################################################
 
     @classmethod
-    def _get_tablename(cls):
+    def get_tablename(cls):
         """Override this in subclasses if you want anything other than a table
         name automatically derived from the class name using
         inflection.tableize().
@@ -66,7 +66,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
         return inflection.tableize(cls.__name__)
 
     @classmethod
-    def _check_field_spec(cls):
+    def check_field_spec(cls):
         # make sure that this runs only for subclasses of Document. There's no
         # really nice way to do this AFAIK, because 'Document' is not known yet
         # when this is called. The best I could come up with is this:
@@ -123,7 +123,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
         return cls._tablename in db_tables
 
     @classmethod
-    async def _create_table(cls, conn=None):
+    async def create_table(cls, conn=None):
         cn = conn or await db_conn
         # make sure table doesn't exist yet
         if await cls.table_exists(cn):
@@ -134,7 +134,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
         create_args = {}
         if cls._table_create_options is not None:
             create_args.update(cls._table_create_options)
-        # declare primary key field if it is not "id"
+        # declare the primary key field if it is not "id"
         if cls.pkey.dbname != "id":
             create_args["primary_key"] = cls.pkey.dbname
 
@@ -266,7 +266,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
     def q(self):
         """RethinkDB query prefix for queries on the document.
         """
-        pkey_dbval = self.__class__.pkey._do_convert_to_doc(self)
+        pkey_dbval = self.__class__.pkey.do_convert_to_doc(self)
         return self.__class__.cq().get(pkey_dbval)
 
     async def save(self, conn=None):
@@ -290,7 +290,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
                 # Field instance: convert field value to DB-serializable format
                 fld_obj = getattr(self.__class__, fld_name)
                 db_key = fld_obj.dbname
-                db_val = fld_obj._do_convert_to_doc(self)
+                db_val = fld_obj.do_convert_to_doc(self)
                 update_dict[db_key] = db_val
             else:
                 # undeclared field: we assume that the value is serializable
@@ -321,7 +321,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
                 continue
             # convert field value to DB-serializable format
             db_key = fld_obj.dbname
-            db_val = fld_obj._do_convert_to_doc(self)
+            db_val = fld_obj.do_convert_to_doc(self)
             insert_dict[db_key] = db_val
         insert_dict.update(self._undeclared_fields)
 
@@ -334,7 +334,7 @@ class Document(FieldContainer, metaclass=_MetaDocument):
         # the DB might have made an automatic id for us
         if "generated_keys" in insert_result:
             new_key_dbval = insert_result["generated_keys"][0]
-            self.__class__.pkey._store_from_doc(self, new_key_dbval)
+            self.__class__.pkey.store_from_doc(self, new_key_dbval)
 
         self._stored_in_db = True
         return insert_result

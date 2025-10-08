@@ -118,7 +118,7 @@ def test_doc_has_tablename(EmptyDoc):
 def EmptyDocCustomTableName(aiorethink_session):
     class EmptyDocCustom(ar.Document):
         @classmethod
-        def _get_tablename(cls):
+        def get_tablename(cls):
             return "CustomTableName"
 
     return EmptyDocCustom
@@ -140,7 +140,7 @@ async def test_custom_table_does_not_exist(EmptyDocCustomTableName, aiorethink_d
 
 @pytest.mark.asyncio
 async def test_create_table(EmptyDoc, db_conn, aiorethink_db_session):
-    await EmptyDoc._create_table()
+    await EmptyDoc.create_table()
     assert await EmptyDoc.table_exists()
 
     cn = await db_conn
@@ -150,12 +150,12 @@ async def test_create_table(EmptyDoc, db_conn, aiorethink_db_session):
     assert len(indices) == 0
 
     with pytest.raises(ar.AlreadyExistsError):
-        await EmptyDoc._create_table()
+        await EmptyDoc.create_table()
 
 
 @pytest.mark.asyncio
 async def test_create_custom_table(EmptyDocCustomTableName, db_conn, aiorethink_db_session):
-    await EmptyDocCustomTableName._create_table()
+    await EmptyDocCustomTableName.create_table()
     assert await EmptyDocCustomTableName.table_exists()
 
     cn = await db_conn
@@ -167,7 +167,7 @@ async def test_custom_table_create_options(db_conn, aiorethink_db_session):
     class CustomDoc(ar.Document):
         _table_create_options = {"durability": "soft"}
 
-    await CustomDoc._create_table()
+    await CustomDoc.create_table()
 
     cn = await db_conn
     conf = await r.table(CustomDoc._tablename).config().run(cn)
@@ -179,7 +179,7 @@ async def test_custom_pkey(db_conn, aiorethink_db_session):
     class CustomPkey(ar.Document):
         f1 = ar.Field(primary_key=True)
 
-    await CustomPkey._create_table()
+    await CustomPkey.create_table()
 
     cn = await db_conn
     conf = await r.table(CustomPkey._tablename).config().run(cn)
@@ -191,7 +191,7 @@ async def test_secondary_index(db_conn, aiorethink_db_session):
     class SecIndex(ar.Document):
         f1 = ar.Field(indexed=True)
 
-    await SecIndex._create_table()
+    await SecIndex.create_table()
 
     cn = await db_conn
     indices = await r.table(SecIndex._tablename).index_list().run(cn)
@@ -209,7 +209,7 @@ def test_new_doc_not_stored_in_db(EmptyDoc):
 
 @pytest.mark.asyncio
 async def test_save_empty_doc(EmptyDoc, aiorethink_db_session, db_conn):
-    await EmptyDoc._create_table()
+    await EmptyDoc.create_table()
     d = EmptyDoc()
     assert d.id is None
     assert d.stored_in_db is False
@@ -225,7 +225,7 @@ async def test_save_empty_doc(EmptyDoc, aiorethink_db_session, db_conn):
 
 @pytest.mark.asyncio
 async def test_create_doc(EmptyDoc, aiorethink_db_session, db_conn):
-    await EmptyDoc._create_table()
+    await EmptyDoc.create_table()
     cn = await db_conn
     d = await EmptyDoc.create(f1=1, hello="blah")
     assert d.stored_in_db
@@ -245,8 +245,8 @@ def MyTestDocs(aiorethink_db_session, event_loop, db_conn):
 
     arun = event_loop.run_until_complete
     cn = arun(db_conn.get())
-    arun(Doc._create_table())
-    arun(DocCustomPkey._create_table())
+    arun(Doc.create_table())
+    arun(DocCustomPkey.create_table())
     return Doc, DocCustomPkey
 
 
@@ -348,7 +348,7 @@ async def test_load_doc(MyTestDocs, db_conn):
 @pytest.mark.asyncio
 async def test_from_cursor(EmptyDoc, db_conn, aiorethink_db_session):
     cn = await db_conn
-    await EmptyDoc._create_table()
+    await EmptyDoc.create_table()
 
     for v in [1, 2, 3]:
         await EmptyDoc.create(v=v)
@@ -365,7 +365,7 @@ async def test_from_cursor(EmptyDoc, db_conn, aiorethink_db_session):
 @pytest.mark.asyncio
 async def test_from_query(EmptyDoc, db_conn, aiorethink_db_session):
     cn = await db_conn
-    await EmptyDoc._create_table()
+    await EmptyDoc.create_table()
 
     for v in [1, 2, 3]:
         await EmptyDoc.create(v=v)
@@ -400,10 +400,10 @@ async def test_subclass_trivial(aiorethink_db_session, db_conn):
     class SpecializedDoc(GeneralDoc):
         pass
 
-    await GeneralDoc._create_table()
+    await GeneralDoc.create_table()
     assert await GeneralDoc.table_exists()
     assert not await SpecializedDoc.table_exists()
-    await SpecializedDoc._create_table()
+    await SpecializedDoc.create_table()
     assert await SpecializedDoc.table_exists()
 
     cn = await db_conn
@@ -438,7 +438,7 @@ async def test_subclass_field_inheritance_sanity(aiorethink_db_session, db_conn)
 @pytest.mark.asyncio
 async def test_table_changefeed(EmptyDoc, db_conn, aiorethink_db_session, event_loop):
     cn = await db_conn
-    await EmptyDoc._create_table()
+    await EmptyDoc.create_table()
 
     async def track_table_changes(num_changes):
         i = 0
@@ -468,7 +468,7 @@ async def test_table_changefeed(EmptyDoc, db_conn, aiorethink_db_session, event_
 @pytest.mark.asyncio
 async def test_doc_changefeed(EmptyDoc, db_conn, aiorethink_db_session, event_loop):
     cn = await db_conn
-    await EmptyDoc._create_table()
+    await EmptyDoc.create_table()
 
     async def track_doc_changes(doc, num_changes):
         i = 0
