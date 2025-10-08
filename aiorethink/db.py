@@ -148,6 +148,9 @@ async def aiter_changes(query, value_type, conn=None):
 ###############################################################################
 
 class CursorAsyncIterator(collections.abc.AsyncIterator):
+    """Async iterator that iterates over a RethinkDB cursor until it's empty.
+    """
+
     def __init__(self, cursor):
         if not hasattr(cursor, 'next'):
             raise ValueError("Cursor must have 'next' method")
